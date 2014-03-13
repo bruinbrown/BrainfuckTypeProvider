@@ -18,9 +18,9 @@ type BrainfuckTypeProvider (cfg:TypeProviderConfig) as this =
 
     let runnerType = ProvidedTypeDefinition(asm, ns, "BrainfuckProvider", Some baseType)
 
-    let EvaluateProgramToProperty program =
-        program
-        |> RunWithoutInput
+    let EvaluateProgramToProperty program input memorySize =
+        (program, memorySize, input)
+        |||> Run
         |> snd
         |> fun t -> ProvidedProperty("ConsoleOuput",
                                      typeof<string>,
@@ -35,12 +35,12 @@ type BrainfuckTypeProvider (cfg:TypeProviderConfig) as this =
         q.AddXmlDoc("The interpreter found an error in your program so far. Please correct it.")
         q
 
-    let LazyEvaluate program =
+    let LazyEvaluate program input memorySize =
         match CheckValidity program with
-        | Valid -> EvaluateProgramToProperty program
+        | Valid -> EvaluateProgramToProperty program input memorySize
         | _ -> CreateErrorProperty ()
 
-    let rec createTypes prog =
+    let rec createTypes prog input memorySize =
         let operators = ["<"; ">"; ",";".";"-";"+";"[";"]"]
         let typs = operators
                    |> List.map (fun t -> let newProg = prog + t
@@ -49,8 +49,8 @@ type BrainfuckTypeProvider (cfg:TypeProviderConfig) as this =
                                                                                 IsStatic = true,
                                                                                 GetterCode = fun args -> <@@ newProg @@>)
                                          let s = ProvidedTypeDefinition(t, Some typeof<obj>)
-                                         s.AddMembersDelayed(fun () -> createTypes newProg)
-                                         s.AddMemberDelayed(fun () -> LazyEvaluate newProg)
+                                         s.AddMembersDelayed(fun () -> createTypes newProg input memorySize)
+                                         s.AddMemberDelayed(fun () -> LazyEvaluate newProg input memorySize)
                                          s.AddMember(programProperty)
                                          s)
         typs
@@ -60,7 +60,7 @@ type BrainfuckTypeProvider (cfg:TypeProviderConfig) as this =
         instantiationFunction = (fun typeName parameterValues ->
             match parameterValues with
             | [| :? string as program; :? string as input; :? int as memorySize |]
-                -> let memory, output = Run program memorySize input
+                -> let _, output = Run program memorySize input
                    let consoleOutput = ProvidedProperty("ConsoleOutput", 
                                                         typeof<string>,
                                                         IsStatic = true,
@@ -71,7 +71,7 @@ type BrainfuckTypeProvider (cfg:TypeProviderConfig) as this =
                                                           IsStatic = true,
                                                           GetterCode = fun args -> <@@ program @@>)
                    let ty = ProvidedTypeDefinition(asm, ns, typeName, Some typeof<obj>)
-                   ty.AddMembersDelayed(fun () -> createTypes program)
+                   ty.AddMembersDelayed(fun () -> createTypes program input memorySize)
                    ty.AddMember(consoleOutput)
                    ty.AddMember(programProperty)
                    ty
